@@ -129,6 +129,26 @@ def init_db() -> None:
         if "membership_expiry" not in cols:
             conn.execute("ALTER TABLE clients ADD COLUMN membership_expiry TEXT")
 
+        # Phase 9 (Aceestver-3.2.4.py): refactor membership fields
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(clients)").fetchall()]
+        if "membership_status" not in cols:
+            conn.execute("ALTER TABLE clients ADD COLUMN membership_status TEXT")
+        if "membership_end" not in cols:
+            conn.execute("ALTER TABLE clients ADD COLUMN membership_end TEXT")
+
+        # Backfill: carry forward any existing membership_expiry values.
+        if "membership_expiry" in cols:
+            conn.execute(
+                "UPDATE clients SET membership_end = membership_expiry "
+                "WHERE (membership_end IS NULL OR membership_end = '') "
+                "AND membership_expiry IS NOT NULL AND membership_expiry != ''"
+            )
+        # Default status for existing rows if missing
+        conn.execute(
+            "UPDATE clients SET membership_status = 'Active' "
+            "WHERE membership_status IS NULL OR membership_status = ''"
+        )
+
         # Phase 6 (Aceestver-2.2.1.py): progress table for charting
         conn.execute(
             """
@@ -209,7 +229,8 @@ class Client:
     notes: str = ""
     target_weight_kg: float = 0.0
     target_adherence: int = 0
-    membership_expiry: str = ""
+    membership_status: str = "Active"
+    membership_end: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         estimated_calories = None
@@ -226,7 +247,8 @@ class Client:
             "height_cm": self.height_cm,
             "target_weight_kg": self.target_weight_kg,
             "target_adherence": self.target_adherence,
-            "membership_expiry": self.membership_expiry,
+            "membership_status": self.membership_status,
+            "membership_end": self.membership_end,
         }
 
 
@@ -283,7 +305,7 @@ def list_clients():
     with _db() as conn:
         rows = conn.execute(
             "SELECT id, name, age, height_cm, weight, program, adherence, notes, "
-            "target_weight_kg, target_adherence, membership_expiry "
+            "target_weight_kg, target_adherence, membership_status, membership_end "
             "FROM clients ORDER BY name, id"
         ).fetchall()
     clients: list[dict[str, Any]] = []
@@ -305,7 +327,8 @@ def list_clients():
                 "estimated_calories": estimated_calories,
                 "target_weight_kg": float(r["target_weight_kg"] or 0.0),
                 "target_adherence": int(r["target_adherence"] or 0),
-                "membership_expiry": r["membership_expiry"] or "",
+                "membership_status": r["membership_status"] or "Active",
+                "membership_end": r["membership_end"] or "",
             }
         )
     return jsonify({"clients": clients})
@@ -328,15 +351,17 @@ def save_client():
     notes = str(payload.get("notes") or "")
     target_weight_kg = float(payload.get("target_weight_kg") or 0.0)
     target_adherence = int(payload.get("target_adherence") or 0)
-    membership_expiry = str(payload.get("membership_expiry") or "")
+    membership_status = str(payload.get("membership_status") or "").strip() or "Active"
+    membership_end = str(payload.get("membership_end") or "")
 
     with _db() as conn:
         conn.execute(
             """
             INSERT INTO clients (
-              name, age, height_cm, weight, program, adherence, notes, target_weight_kg, target_adherence, membership_expiry
+              name, age, height_cm, weight, program, adherence, notes, target_weight_kg, target_adherence,
+              membership_status, membership_end
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name,
@@ -348,7 +373,8 @@ def save_client():
                 notes,
                 target_weight_kg,
                 target_adherence,
-                membership_expiry,
+                membership_status,
+                membership_end,
             ),
         )
 
@@ -369,7 +395,8 @@ def save_client():
         notes=notes,
         target_weight_kg=target_weight_kg,
         target_adherence=target_adherence,
-        membership_expiry=membership_expiry,
+        membership_status=membership_status,
+        membership_end=membership_end,
     )
     return jsonify({"client": client.to_dict()}), 201
 
@@ -379,7 +406,7 @@ def get_client(name: str):
     with _db() as conn:
         r = conn.execute(
             "SELECT id, name, age, height_cm, weight, program, adherence, notes, "
-            "target_weight_kg, target_adherence, membership_expiry "
+            "target_weight_kg, target_adherence, membership_status, membership_end "
             "FROM clients WHERE name=? ORDER BY id DESC LIMIT 1",
             (name,),
         ).fetchone()
@@ -403,7 +430,8 @@ def get_client(name: str):
                 "estimated_calories": estimated_calories,
                 "target_weight_kg": float(r["target_weight_kg"] or 0.0),
                 "target_adherence": int(r["target_adherence"] or 0),
-                "membership_expiry": r["membership_expiry"] or "",
+                "membership_status": r["membership_status"] or "Active",
+                "membership_end": r["membership_end"] or "",
             }
         }
     )
@@ -721,7 +749,7 @@ def export_pdf_report(name: str):
 
     with _db() as conn:
         row = conn.execute(
-            "SELECT name, age, height_cm, weight, program, membership_expiry "
+            "SELECT name, age, height_cm, weight, program, membership_status, membership_end "
             "FROM clients WHERE name=? ORDER BY id DESC LIMIT 1",
             (name,),
         ).fetchone()
@@ -739,7 +767,8 @@ def export_pdf_report(name: str):
     pdf.cell(0, 10, f"Height: {row['height_cm']} cm", ln=True)
     pdf.cell(0, 10, f"Weight: {row['weight']} kg", ln=True)
     pdf.cell(0, 10, f"Program: {row['program']}", ln=True)
-    pdf.cell(0, 10, f"Membership Expiry: {row['membership_expiry'] or ''}", ln=True)
+    pdf.cell(0, 10, f"Membership: {row['membership_status'] or 'Active'}", ln=True)
+    pdf.cell(0, 10, f"Membership End: {row['membership_end'] or ''}", ln=True)
 
     pdf_bytes = pdf.output(dest="S").encode("latin-1")
     return Response(
@@ -747,6 +776,26 @@ def export_pdf_report(name: str):
         mimetype="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={name}_report.pdf"},
     )
+
+
+@app.get("/membership/status")
+def membership_status():
+    client_name = str(request.args.get("client_name") or "").strip()
+    if not client_name:
+        raise ApiError(400, "Query param 'client_name' is required")
+
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT membership_status, membership_end "
+            "FROM clients WHERE name=? ORDER BY id DESC LIMIT 1",
+            (client_name,),
+        ).fetchone()
+    if not row:
+        raise ApiError(404, f"Client not found: {client_name}")
+
+    status = row["membership_status"] or "Active"
+    end = row["membership_end"] or ""
+    return jsonify({"client": client_name, "membership_status": status, "membership_end": end})
 
 
 if __name__ == "__main__":
