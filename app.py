@@ -100,12 +100,6 @@ def init_db() -> None:
         # - Do not store calories (derived field only)
         # - Do not enforce UNIQUE on name (id is the primary key)
         #
-        # If an older schema exists (e.g. had calories/UNIQUE), recreate the table.
-        exists = (
-            conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='clients'")
-            .fetchone()
-            is not None
-        )
         # Ensure base clients table exists (Phase 4+). We keep calories derived only.
         conn.execute(
             """
@@ -123,6 +117,31 @@ def init_db() -> None:
             )
             """
         )
+
+        # Older DB files (e.g. from Tkinter prototypes) may already have `clients` with fewer
+        # columns. CREATE TABLE IF NOT EXISTS does not upgrade them — add missing columns.
+        _client_cols = {r["name"] for r in conn.execute("PRAGMA table_info(clients)").fetchall()}
+        for col_name, col_type in (
+            ("name", "TEXT"),
+            ("age", "INTEGER"),
+            ("height_cm", "REAL"),
+            ("weight", "REAL"),
+            ("program", "TEXT"),
+            ("adherence", "INTEGER"),
+            ("notes", "TEXT"),
+            ("target_weight_kg", "REAL"),
+            ("target_adherence", "INTEGER"),
+        ):
+            if col_name not in _client_cols:
+                conn.execute(f"ALTER TABLE clients ADD COLUMN {col_name} {col_type}")
+                _client_cols.add(col_name)
+
+        # Tkinter-era DBs often store height as `height`; map into `height_cm` when both exist.
+        if "height" in _client_cols and "height_cm" in _client_cols:
+            conn.execute(
+                "UPDATE clients SET height_cm = height "
+                "WHERE (height_cm IS NULL OR height_cm = 0) AND height IS NOT NULL AND height != 0"
+            )
 
         # Phase 8 (Aceestver-3.1.2.py): add membership_expiry field (do not drop data)
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(clients)").fetchall()]
