@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import csv
+import io
 from dataclasses import dataclass
 from typing import Any
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request, Response
 
 
 app = Flask(__name__)
@@ -62,6 +64,47 @@ PROGRAMS: dict[str, dict[str, Any]] = {
 }
 
 
+# -------------------------
+# Phase 2 (Aceestver1.1.2.py)
+# -------------------------
+# In-memory client capture + CSV export + adherence chart data.
+# Calorie factors are internal-only and used to return estimated_calories in client responses.
+
+PROGRAM_CALORIE_FACTOR: dict[str, int] = {
+    "Fat Loss (FL)": 22,
+    "Muscle Gain (MG)": 35,
+    "Beginner (BG)": 26,
+}
+
+
+@dataclass
+class Client:
+    name: str
+    age: int = 0
+    weight_kg: float = 0.0
+    program: str = ""
+    adherence: int = 0
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        estimated_calories = None
+        if self.weight_kg > 0 and self.program in PROGRAM_CALORIE_FACTOR:
+            estimated_calories = int(self.weight_kg * PROGRAM_CALORIE_FACTOR[self.program])
+        return {
+            "name": self.name,
+            "age": self.age,
+            "weight_kg": self.weight_kg,
+            "program": self.program,
+            "adherence": self.adherence,
+            "notes": self.notes,
+            "estimated_calories": estimated_calories,
+        }
+
+
+# In-memory store (Phase 2 only; SQLite begins in Phase 4)
+CLIENTS: list[Client] = []
+
+
 @dataclass(frozen=True)
 class ApiError(Exception):
     status_code: int
@@ -100,6 +143,60 @@ def get_program(name: str):
     if name not in PROGRAMS:
         raise ApiError(404, f"Program not found: {name}")
     return jsonify({"name": name, **PROGRAMS[name]})
+
+
+@app.get("/clients")
+def list_clients():
+    return jsonify({"clients": [c.to_dict() for c in CLIENTS]})
+
+
+@app.post("/clients")
+def save_client():
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get("name") or "").strip()
+    program = str(payload.get("program") or "").strip()
+    if not name or not program:
+        raise ApiError(400, "Fields 'name' and 'program' are required")
+    if program not in PROGRAMS:
+        raise ApiError(400, f"Unknown program: {program}")
+
+    client = Client(
+        name=name,
+        age=int(payload.get("age") or 0),
+        weight_kg=float(payload.get("weight_kg") or 0.0),
+        program=program,
+        adherence=int(payload.get("adherence") or 0),
+        notes=str(payload.get("notes") or ""),
+    )
+    CLIENTS.append(client)
+    return jsonify({"client": client.to_dict()}), 201
+
+
+@app.get("/clients/<string:name>")
+def get_client(name: str):
+    for c in CLIENTS:
+        if c.name == name:
+            return jsonify({"client": c.to_dict()})
+    raise ApiError(404, f"Client not found: {name}")
+
+
+@app.get("/clients/export.csv")
+def export_clients_csv():
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Name", "Age", "Weight", "Program", "Adherence", "Notes"])
+    for c in CLIENTS:
+        writer.writerow([c.name, c.age, c.weight_kg, c.program, c.adherence, c.notes])
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=clients.csv"},
+    )
+
+
+@app.get("/analytics/adherence")
+def adherence_chart_data():
+    return jsonify({"labels": [c.name for c in CLIENTS], "values": [c.adherence for c in CLIENTS]})
 
 
 if __name__ == "__main__":
