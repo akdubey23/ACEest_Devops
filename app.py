@@ -5,6 +5,7 @@ import io
 import os
 import random
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
@@ -88,10 +89,22 @@ PROGRAM_CALORIE_FACTOR: dict[str, int] = {
 DB_PATH = os.environ.get("ACEEST_DB_PATH", "aceest_fitness.db")
 
 
-def _db() -> sqlite3.Connection:
+@contextmanager
+def _db():
+    """
+    Yield a SQLite connection and always close it (avoids ResourceWarning leaks).
+    Commits on success, rolls back on exception.
+    """
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def init_db() -> None:
@@ -295,6 +308,7 @@ def home():
                 "/programs/<name>",
                 "/clients",
                 "/clients/<name>",
+                "PATCH /clients/<name>",
                 "/clients/export.csv",
                 "/clients/<name>/report.pdf",
                 "/analytics/adherence",
@@ -464,6 +478,86 @@ def get_client(name: str):
             }
         }
     )
+
+
+@app.patch("/clients/<string:name>")
+def update_client(name: str):
+    """Partial update of the latest client row for this name."""
+    payload = request.get_json(silent=True) or {}
+    with _db() as conn:
+        r = conn.execute(
+            "SELECT id, name, age, height_cm, weight, program, adherence, notes, "
+            "target_weight_kg, target_adherence, membership_status, membership_end "
+            "FROM clients WHERE name=? ORDER BY id DESC LIMIT 1",
+            (name,),
+        ).fetchone()
+    if not r:
+        raise ApiError(404, f"Client not found: {name}")
+
+    def _coerce_int(key: str, current: int) -> int:
+        if key not in payload:
+            return current
+        return int(payload[key] or 0)
+
+    def _coerce_float(key: str, current: float) -> float:
+        if key not in payload:
+            return current
+        return float(payload[key] or 0.0)
+
+    def _coerce_str(key: str, current: str) -> str:
+        if key not in payload:
+            return current
+        return str(payload[key] or "")
+
+    age = _coerce_int("age", int(r["age"] or 0))
+    height_cm = _coerce_float("height_cm", float(r["height_cm"] or 0.0))
+    weight_kg = _coerce_float("weight_kg", float(r["weight"] or 0.0))
+    notes = _coerce_str("notes", r["notes"] or "")
+    target_weight_kg = _coerce_float("target_weight_kg", float(r["target_weight_kg"] or 0.0))
+    target_adherence = _coerce_int("target_adherence", int(r["target_adherence"] or 0))
+    membership_status = _coerce_str("membership_status", r["membership_status"] or "Active").strip() or "Active"
+    membership_end = _coerce_str("membership_end", r["membership_end"] or "")
+
+    program = str(r["program"] or "")
+    if "program" in payload:
+        program = str(payload.get("program") or "").strip()
+        if not program:
+            raise ApiError(400, "Field 'program' cannot be empty")
+        if program not in PROGRAMS:
+            raise ApiError(400, f"Unknown program: {program}")
+
+    adherence = _coerce_int("adherence", int(r["adherence"] or 0))
+
+    with _db() as conn:
+        conn.execute(
+            """
+            UPDATE clients SET
+              age=?, height_cm=?, weight=?, program=?, adherence=?, notes=?,
+              target_weight_kg=?, target_adherence=?, membership_status=?, membership_end=?
+            WHERE id=?
+            """,
+            (
+                age,
+                height_cm,
+                weight_kg,
+                program,
+                adherence,
+                notes,
+                target_weight_kg,
+                target_adherence,
+                membership_status,
+                membership_end,
+                r["id"],
+            ),
+        )
+        if "adherence" in payload:
+            week = datetime.now().strftime("Week %U - %Y")
+            conn.execute(
+                "INSERT INTO progress (client_name, week, adherence) VALUES (?, ?, ?)",
+                (name, week, adherence),
+            )
+
+    return get_client(name)
 
 
 @app.get("/clients/export.csv")
@@ -773,8 +867,9 @@ def ai_program():
 def export_pdf_report(name: str):
     try:
         from fpdf import FPDF
+        from fpdf.enums import XPos, YPos
     except Exception as e:  # pragma: no cover
-        raise ApiError(500, f"PDF dependency missing: {e}") from e
+        raise ApiError(500, f"PDF dependency missing (pip install fpdf2): {e}") from e
 
     with _db() as conn:
         row = conn.execute(
@@ -787,19 +882,22 @@ def export_pdf_report(name: str):
 
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, f"Client Report - {row['name']}", ln=True, align="C")
-    pdf.set_font("Arial", "", 12)
+    # fpdf2 built-in fonts: Helvetica / Times / Courier (not Arial on all installs)
+    nx, ny = XPos.LMARGIN, YPos.NEXT
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, f"Client Report - {row['name']}", new_x=nx, new_y=ny, align="C")
+    pdf.set_font("Helvetica", "", 12)
     pdf.ln(10)
-    pdf.cell(0, 10, f"Name: {row['name']}", ln=True)
-    pdf.cell(0, 10, f"Age: {row['age']}", ln=True)
-    pdf.cell(0, 10, f"Height: {row['height_cm']} cm", ln=True)
-    pdf.cell(0, 10, f"Weight: {row['weight']} kg", ln=True)
-    pdf.cell(0, 10, f"Program: {row['program']}", ln=True)
-    pdf.cell(0, 10, f"Membership: {row['membership_status'] or 'Active'}", ln=True)
-    pdf.cell(0, 10, f"Membership End: {row['membership_end'] or ''}", ln=True)
+    pdf.cell(0, 10, f"Name: {row['name']}", new_x=nx, new_y=ny)
+    pdf.cell(0, 10, f"Age: {row['age']}", new_x=nx, new_y=ny)
+    pdf.cell(0, 10, f"Height: {row['height_cm']} cm", new_x=nx, new_y=ny)
+    pdf.cell(0, 10, f"Weight: {row['weight']} kg", new_x=nx, new_y=ny)
+    pdf.cell(0, 10, f"Program: {row['program']}", new_x=nx, new_y=ny)
+    pdf.cell(0, 10, f"Membership: {row['membership_status'] or 'Active'}", new_x=nx, new_y=ny)
+    pdf.cell(0, 10, f"Membership End: {row['membership_end'] or ''}", new_x=nx, new_y=ny)
 
-    pdf_bytes = pdf.output(dest="S").encode("latin-1")
+    out = pdf.output()
+    pdf_bytes = bytes(out) if out is not None else b""
     return Response(
         pdf_bytes,
         mimetype="application/pdf",
