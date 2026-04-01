@@ -5,7 +5,7 @@ import sys
 
 def _make_client(tmp_path):
     """
-    Through Phase 7 we rely on SQLite persistence.
+    SQLite-backed API tests (Phases 4–10).
     Each test uses its own temporary DB to avoid state bleed.
     """
     db_path = tmp_path / "test_aceest.db"
@@ -40,6 +40,20 @@ def test_health_ok(tmp_path):
     resp = client.get("/health")
     assert resp.status_code == 200
     assert resp.get_json()["status"] == "ok"
+
+
+def test_home_phase10_discovery_metadata(tmp_path):
+    client = _make_client(tmp_path)
+    resp = client.get("/")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["phase"] == 10
+    assert data["version_source"] == "Aceestver-3.2.4.py"
+    endpoints = data["endpoints"]
+    assert "/health" in endpoints
+    assert "/auth/login" in endpoints
+    assert "/membership/status?client_name=" in endpoints
+    assert "/clients/<name>/report.pdf" in endpoints
 
 
 def test_programs_and_client_crud(tmp_path):
@@ -125,4 +139,36 @@ def test_workouts_and_metrics_and_bmi(tmp_path):
     assert bmi_resp.status_code == 200
     data = bmi_resp.get_json()
     assert "bmi" in data and "category" in data and "risk" in data
+
+
+def test_auth_login_and_membership_status(tmp_path):
+    client = _make_client(tmp_path)
+    login = client.post("/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    assert login.get_json()["role"] == "Admin"
+
+    _create_client(
+        client,
+        name="Mem",
+        membership_status="Active",
+        membership_end="2026-12-31",
+    )
+    ms = client.get("/membership/status?client_name=Mem")
+    assert ms.status_code == 200
+    body = ms.get_json()
+    assert body["membership_status"] == "Active"
+    assert body["membership_end"] == "2026-12-31"
+
+
+def test_ai_program_requires_client(tmp_path):
+    client = _make_client(tmp_path)
+    bad = client.post("/ai/program", json={"client_name": "Nobody", "experience": "beginner"})
+    assert bad.status_code == 404
+
+    _create_client(client, name="AI", program="Fat Loss (FL)")
+    ok = client.post("/ai/program", json={"client_name": "AI", "experience": "beginner"})
+    assert ok.status_code == 200
+    plan = ok.get_json()["plan"]
+    assert len(plan) >= 1
+    assert "day" in plan[0] and "exercise" in plan[0]
 
