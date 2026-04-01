@@ -1,6 +1,7 @@
 // ACEest Fitness API — simple CI-style pipeline for coursework
 // Works on Windows Jenkins (bat) and Linux agents (sh).
-// On Windows, the Jenkins service often has no `python` on PATH; try `py -3` first (python.org launcher).
+// Windows: scripts/jenkins-windows-ci.cmd finds Python (service account has no user PATH).
+// Optional: set job/node env PYTHON_JENKINS=C:\Path\to\python.exe if discovery still fails.
 
 pipeline {
     agent any
@@ -19,29 +20,7 @@ pipeline {
                         sh 'python3 -m pip install --upgrade pip'
                         sh 'python3 -m pip install -r requirements.txt'
                     } else {
-                        bat '''
-                            @echo off
-                            py -3 --version >nul 2>nul
-                            if not errorlevel 1 (
-                                py -3 -m pip install --upgrade pip
-                                py -3 -m pip install -r requirements.txt
-                                exit /b 0
-                            )
-                            python --version >nul 2>nul
-                            if not errorlevel 1 (
-                                python -m pip install --upgrade pip
-                                python -m pip install -r requirements.txt
-                                exit /b 0
-                            )
-                            python3 --version >nul 2>nul
-                            if not errorlevel 1 (
-                                python3 -m pip install --upgrade pip
-                                python3 -m pip install -r requirements.txt
-                                exit /b 0
-                            )
-                            echo ERROR: Python 3 not on PATH for this Jenkins agent. Install Python for all users with "Add to PATH", or add Scripts folder to the system PATH for the Jenkins service account.
-                            exit /b 1
-                        '''
+                        bat 'call scripts\\jenkins-windows-ci.cmd install'
                     }
                 }
             }
@@ -53,26 +32,7 @@ pipeline {
                     if (isUnix()) {
                         sh 'python3 -m pytest tests/ -v --tb=short'
                     } else {
-                        bat '''
-                            @echo off
-                            py -3 --version >nul 2>nul
-                            if not errorlevel 1 goto :run_py
-                            python --version >nul 2>nul
-                            if not errorlevel 1 goto :run_python
-                            python3 --version >nul 2>nul
-                            if not errorlevel 1 goto :run_python3
-                            echo ERROR: Python 3 not on PATH.
-                            exit /b 1
-                            :run_py
-                            py -3 -m pytest tests/ -v --tb=short
-                            exit /b %ERRORLEVEL%
-                            :run_python
-                            python -m pytest tests/ -v --tb=short
-                            exit /b %ERRORLEVEL%
-                            :run_python3
-                            python3 -m pytest tests/ -v --tb=short
-                            exit /b %ERRORLEVEL%
-                        '''
+                        bat 'call scripts\\jenkins-windows-ci.cmd test'
                     }
                 }
             }
