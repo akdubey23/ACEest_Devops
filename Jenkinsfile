@@ -30,7 +30,16 @@ pipeline {
             steps {
                 script {
                     if (isUnix()) {
-                        sh 'mkdir -p test-results && python3 -m pytest tests/ -v --tb=short --junitxml=test-results/junit.xml'
+                        sh '''
+                            mkdir -p test-results allure-results
+                            python3 -m pytest tests/ -v --tb=short \\
+                              --junitxml=test-results/junit.xml \\
+                              --alluredir=allure-results \\
+                              --html=test-results/pytest-report.html --self-contained-html
+                            PYEXIT=$?
+                            python3 scripts/build_test_dashboard.py || true
+                            exit $PYEXIT
+                        '''
                     } else {
                         bat 'call scripts\\jenkins-windows-ci.cmd test'
                     }
@@ -54,6 +63,7 @@ pipeline {
     post {
         always {
             junit testResults: 'test-results/junit.xml', allowEmptyResults: true
+            archiveArtifacts artifacts: 'test-results/*.html,allure-results/**/*', allowEmptyArchive: true, fingerprint: true
         }
     }
 }
