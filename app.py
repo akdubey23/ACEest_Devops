@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import io
+import os
+import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
@@ -76,6 +78,55 @@ PROGRAM_CALORIE_FACTOR: dict[str, int] = {
     "Beginner (BG)": 26,
 }
 
+# -------------------------
+# Phase 4 (Aceestver2.0.1.py)
+# -------------------------
+# Replace in-memory client store with SQLite persistence.
+
+DB_PATH = os.environ.get("ACEEST_DB_PATH", "aceest_fitness.db")
+
+
+def _db() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db() -> None:
+    with _db() as conn:
+        # Phase 4 schema (Aceestver2.0.1.py-inspired), with assignment constraints:
+        # - Do not store calories (derived field only)
+        # - Do not enforce UNIQUE on name (id is the primary key)
+        #
+        # If an older schema exists (e.g. had calories/UNIQUE), recreate the table.
+        conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='clients'"
+        )
+        exists = conn.fetchone() is not None
+        if exists:
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(clients)").fetchall()]
+            required = {"id", "name", "age", "weight", "program", "adherence", "notes"}
+            # If schema differs (e.g. contains calories), drop and recreate.
+            if set(cols) != required:
+                conn.execute("DROP TABLE clients")
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS clients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                age INTEGER,
+                weight REAL,
+                program TEXT,
+                adherence INTEGER,
+                notes TEXT
+            )
+            """
+        )
+
+
+init_db()
+
 
 @dataclass
 class Client:
@@ -99,10 +150,6 @@ class Client:
             "notes": self.notes,
             "estimated_calories": estimated_calories,
         }
-
-
-# In-memory store (Phase 2 only; SQLite begins in Phase 4)
-CLIENTS: list[Client] = []
 
 
 @dataclass(frozen=True)
@@ -147,7 +194,29 @@ def get_program(name: str):
 
 @app.get("/clients")
 def list_clients():
-    return jsonify({"clients": [c.to_dict() for c in CLIENTS]})
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, age, weight, program, adherence, notes FROM clients ORDER BY name, id"
+        ).fetchall()
+    clients: list[dict[str, Any]] = []
+    for r in rows:
+        program = r["program"] or ""
+        weight_kg = float(r["weight"] or 0.0)
+        estimated_calories = None
+        if weight_kg > 0 and program in PROGRAM_CALORIE_FACTOR:
+            estimated_calories = int(weight_kg * PROGRAM_CALORIE_FACTOR[program])
+        clients.append(
+            {
+                "name": r["name"],
+                "age": r["age"] or 0,
+                "weight_kg": weight_kg,
+                "program": program,
+                "adherence": int(r["adherence"] or 0),
+                "notes": r["notes"] or "",
+                "estimated_calories": estimated_calories,
+            }
+        )
+    return jsonify({"clients": clients})
 
 
 @app.post("/clients")
@@ -160,24 +229,52 @@ def save_client():
     if program not in PROGRAMS:
         raise ApiError(400, f"Unknown program: {program}")
 
-    client = Client(
-        name=name,
-        age=int(payload.get("age") or 0),
-        weight_kg=float(payload.get("weight_kg") or 0.0),
-        program=program,
-        adherence=int(payload.get("adherence") or 0),
-        notes=str(payload.get("notes") or ""),
-    )
-    CLIENTS.append(client)
+    age = int(payload.get("age") or 0)
+    weight_kg = float(payload.get("weight_kg") or 0.0)
+    adherence = int(payload.get("adherence") or 0)
+    notes = str(payload.get("notes") or "")
+
+    with _db() as conn:
+        conn.execute(
+            """
+            INSERT INTO clients (name, age, weight, program, adherence, notes)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (name, age, weight_kg, program, adherence, notes),
+        )
+
+    client = Client(name=name, age=age, weight_kg=weight_kg, program=program, adherence=adherence, notes=notes)
     return jsonify({"client": client.to_dict()}), 201
 
 
 @app.get("/clients/<string:name>")
 def get_client(name: str):
-    for c in CLIENTS:
-        if c.name == name:
-            return jsonify({"client": c.to_dict()})
-    raise ApiError(404, f"Client not found: {name}")
+    with _db() as conn:
+        r = conn.execute(
+            "SELECT id, name, age, weight, program, adherence, notes "
+            "FROM clients WHERE name=? ORDER BY id DESC LIMIT 1",
+            (name,),
+        ).fetchone()
+    if not r:
+        raise ApiError(404, f"Client not found: {name}")
+    program = r["program"] or ""
+    weight_kg = float(r["weight"] or 0.0)
+    estimated_calories = None
+    if weight_kg > 0 and program in PROGRAM_CALORIE_FACTOR:
+        estimated_calories = int(weight_kg * PROGRAM_CALORIE_FACTOR[program])
+    return jsonify(
+        {
+            "client": {
+                "name": r["name"],
+                "age": r["age"] or 0,
+                "weight_kg": weight_kg,
+                "program": program,
+                "adherence": int(r["adherence"] or 0),
+                "notes": r["notes"] or "",
+                "estimated_calories": estimated_calories,
+            }
+        }
+    )
 
 
 @app.get("/clients/export.csv")
@@ -185,8 +282,21 @@ def export_clients_csv():
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["Name", "Age", "Weight", "Program", "Adherence", "Notes"])
-    for c in CLIENTS:
-        writer.writerow([c.name, c.age, c.weight_kg, c.program, c.adherence, c.notes])
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, age, weight, program, adherence, notes FROM clients ORDER BY name, id"
+        ).fetchall()
+    for r in rows:
+        writer.writerow(
+            [
+                r["name"],
+                r["age"] or 0,
+                float(r["weight"] or 0.0),
+                r["program"] or "",
+                int(r["adherence"] or 0),
+                r["notes"] or "",
+            ]
+        )
     return Response(
         buf.getvalue(),
         mimetype="text/csv",
@@ -196,7 +306,9 @@ def export_clients_csv():
 
 @app.get("/analytics/adherence")
 def adherence_chart_data():
-    return jsonify({"labels": [c.name for c in CLIENTS], "values": [c.adherence for c in CLIENTS]})
+    with _db() as conn:
+        rows = conn.execute("SELECT name, adherence FROM clients ORDER BY name").fetchall()
+    return jsonify({"labels": [r["name"] for r in rows], "values": [int(r["adherence"] or 0) for r in rows]})
 
 
 if __name__ == "__main__":
