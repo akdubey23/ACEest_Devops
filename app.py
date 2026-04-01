@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+import random
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -105,24 +106,7 @@ def init_db() -> None:
             .fetchone()
             is not None
         )
-        if exists:
-            cols = [r["name"] for r in conn.execute("PRAGMA table_info(clients)").fetchall()]
-            required = {
-                "id",
-                "name",
-                "age",
-                "height_cm",
-                "weight",
-                "program",
-                "adherence",
-                "notes",
-                "target_weight_kg",
-                "target_adherence",
-            }
-            # If schema differs (e.g. contains calories), drop and recreate.
-            if set(cols) != required:
-                conn.execute("DROP TABLE clients")
-
+        # Ensure base clients table exists (Phase 4+). We keep calories derived only.
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS clients (
@@ -139,6 +123,11 @@ def init_db() -> None:
             )
             """
         )
+
+        # Phase 8 (Aceestver-3.1.2.py): add membership_expiry field (do not drop data)
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(clients)").fetchall()]
+        if "membership_expiry" not in cols:
+            conn.execute("ALTER TABLE clients ADD COLUMN membership_expiry TEXT")
 
         # Phase 6 (Aceestver-2.2.1.py): progress table for charting
         conn.execute(
@@ -190,6 +179,21 @@ def init_db() -> None:
             """
         )
 
+        # Phase 8 (Aceestver-3.1.2.py): users table for login
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE,
+                password TEXT,
+                role TEXT
+            )
+            """
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO users (username, password, role) VALUES ('admin','admin','Admin')"
+        )
+
 
 init_db()
 
@@ -205,6 +209,7 @@ class Client:
     notes: str = ""
     target_weight_kg: float = 0.0
     target_adherence: int = 0
+    membership_expiry: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         estimated_calories = None
@@ -218,6 +223,10 @@ class Client:
             "adherence": self.adherence,
             "notes": self.notes,
             "estimated_calories": estimated_calories,
+            "height_cm": self.height_cm,
+            "target_weight_kg": self.target_weight_kg,
+            "target_adherence": self.target_adherence,
+            "membership_expiry": self.membership_expiry,
         }
 
 
@@ -274,7 +283,7 @@ def list_clients():
     with _db() as conn:
         rows = conn.execute(
             "SELECT id, name, age, height_cm, weight, program, adherence, notes, "
-            "target_weight_kg, target_adherence "
+            "target_weight_kg, target_adherence, membership_expiry "
             "FROM clients ORDER BY name, id"
         ).fetchall()
     clients: list[dict[str, Any]] = []
@@ -296,6 +305,7 @@ def list_clients():
                 "estimated_calories": estimated_calories,
                 "target_weight_kg": float(r["target_weight_kg"] or 0.0),
                 "target_adherence": int(r["target_adherence"] or 0),
+                "membership_expiry": r["membership_expiry"] or "",
             }
         )
     return jsonify({"clients": clients})
@@ -318,16 +328,28 @@ def save_client():
     notes = str(payload.get("notes") or "")
     target_weight_kg = float(payload.get("target_weight_kg") or 0.0)
     target_adherence = int(payload.get("target_adherence") or 0)
+    membership_expiry = str(payload.get("membership_expiry") or "")
 
     with _db() as conn:
         conn.execute(
             """
             INSERT INTO clients (
-              name, age, height_cm, weight, program, adherence, notes, target_weight_kg, target_adherence
+              name, age, height_cm, weight, program, adherence, notes, target_weight_kg, target_adherence, membership_expiry
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (name, age, height_cm, weight_kg, program, adherence, notes, target_weight_kg, target_adherence),
+            (
+                name,
+                age,
+                height_cm,
+                weight_kg,
+                program,
+                adherence,
+                notes,
+                target_weight_kg,
+                target_adherence,
+                membership_expiry,
+            ),
         )
 
         # Phase 6 support: capture adherence into progress history for charting
@@ -347,6 +369,7 @@ def save_client():
         notes=notes,
         target_weight_kg=target_weight_kg,
         target_adherence=target_adherence,
+        membership_expiry=membership_expiry,
     )
     return jsonify({"client": client.to_dict()}), 201
 
@@ -355,7 +378,8 @@ def save_client():
 def get_client(name: str):
     with _db() as conn:
         r = conn.execute(
-            "SELECT id, name, age, height_cm, weight, program, adherence, notes, target_weight_kg, target_adherence "
+            "SELECT id, name, age, height_cm, weight, program, adherence, notes, "
+            "target_weight_kg, target_adherence, membership_expiry "
             "FROM clients WHERE name=? ORDER BY id DESC LIMIT 1",
             (name,),
         ).fetchone()
@@ -379,6 +403,7 @@ def get_client(name: str):
                 "estimated_calories": estimated_calories,
                 "target_weight_kg": float(r["target_weight_kg"] or 0.0),
                 "target_adherence": int(r["target_adherence"] or 0),
+                "membership_expiry": r["membership_expiry"] or "",
             }
         }
     )
@@ -586,6 +611,142 @@ def bmi_info():
         risk = "Higher risk; prioritize fat loss, consistency, and supervision."
 
     return jsonify({"client": client_name, "bmi": bmi, "category": category, "risk": risk})
+
+
+# -------------------------
+# Phase 8 (Aceestver-3.1.2.py)
+# -------------------------
+
+
+@app.post("/auth/login")
+def auth_login():
+    payload = request.get_json(silent=True) or {}
+    username = str(payload.get("username") or "").strip()
+    password = str(payload.get("password") or "").strip()
+    if not username or not password:
+        raise ApiError(400, "Fields 'username' and 'password' are required")
+
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT role FROM users WHERE username=? AND password=?",
+            (username, password),
+        ).fetchone()
+    if not row:
+        raise ApiError(401, "Invalid credentials")
+    return jsonify({"username": username, "role": row["role"]})
+
+
+@app.post("/ai/program")
+def ai_program():
+    payload = request.get_json(silent=True) or {}
+    client_name = str(payload.get("client_name") or "").strip()
+    experience = str(payload.get("experience") or "").strip().lower()
+    if not client_name:
+        raise ApiError(400, "Field 'client_name' is required")
+    if experience not in {"beginner", "intermediate", "advanced"}:
+        raise ApiError(400, "Field 'experience' must be beginner|intermediate|advanced")
+
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT program FROM clients WHERE name=? ORDER BY id DESC LIMIT 1",
+            (client_name,),
+        ).fetchone()
+    if not row:
+        raise ApiError(404, f"Client not found: {client_name}")
+    program_name = row["program"] or ""
+
+    exercises_pool = {
+        "Hypertrophy": [
+            "Leg Press",
+            "Incline Dumbbell Press",
+            "Lat Pulldown",
+            "Lateral Raise",
+            "Bicep Curl",
+            "Tricep Extension",
+        ],
+        "Conditioning": [
+            "Running",
+            "Cycling",
+            "Rowing",
+            "Burpees",
+            "Jump Rope",
+            "Kettlebell Swings",
+        ],
+        "Full Body": [
+            "Push-Up",
+            "Pull-Up",
+            "Lunge",
+            "Plank",
+            "Dumbbell Row",
+            "Dumbbell Press",
+        ],
+    }
+
+    focus = "Full Body"
+    if "Fat Loss" in program_name:
+        focus = "Conditioning"
+    elif "Muscle Gain" in program_name:
+        focus = "Hypertrophy"
+
+    if experience == "beginner":
+        sets_range, reps_range, days = (2, 3), (8, 12), 3
+    elif experience == "intermediate":
+        sets_range, reps_range, days = (3, 4), (8, 15), 4
+    else:
+        sets_range, reps_range, days = (4, 5), (6, 15), 5
+
+    weekly_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][:days]
+    plan: list[dict[str, Any]] = []
+    for day in weekly_days:
+        exercises = random.sample(exercises_pool[focus], k=3 if days < 4 else 4)
+        for ex in exercises:
+            plan.append(
+                {
+                    "day": day,
+                    "exercise": ex,
+                    "sets": random.randint(*sets_range),
+                    "reps": random.randint(*reps_range),
+                }
+            )
+
+    return jsonify({"client": client_name, "focus": focus, "plan": plan})
+
+
+@app.get("/clients/<string:name>/report.pdf")
+def export_pdf_report(name: str):
+    try:
+        from fpdf import FPDF
+    except Exception as e:  # pragma: no cover
+        raise ApiError(500, f"PDF dependency missing: {e}") from e
+
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT name, age, height_cm, weight, program, membership_expiry "
+            "FROM clients WHERE name=? ORDER BY id DESC LIMIT 1",
+            (name,),
+        ).fetchone()
+    if not row:
+        raise ApiError(404, f"Client not found: {name}")
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, f"Client Report - {row['name']}", ln=True, align="C")
+    pdf.set_font("Arial", "", 12)
+    pdf.ln(10)
+    pdf.cell(0, 10, f"Name: {row['name']}", ln=True)
+    pdf.cell(0, 10, f"Age: {row['age']}", ln=True)
+    pdf.cell(0, 10, f"Height: {row['height_cm']} cm", ln=True)
+    pdf.cell(0, 10, f"Weight: {row['weight']} kg", ln=True)
+    pdf.cell(0, 10, f"Program: {row['program']}", ln=True)
+    pdf.cell(0, 10, f"Membership Expiry: {row['membership_expiry'] or ''}", ln=True)
+
+    pdf_bytes = pdf.output(dest="S").encode("latin-1")
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={name}_report.pdf"},
+    )
 
 
 if __name__ == "__main__":
