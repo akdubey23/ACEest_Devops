@@ -169,9 +169,17 @@ def home():
     return jsonify(
         {
             "service": "ACEest Fitness & Gym API",
-            "phase": 1,
-            "version_source": "Aceestver-1.0.py",
-            "endpoints": ["/health", "/programs", "/programs/<name>"],
+            "phase": 4,
+            "version_source": "Aceestver2.0.1.py",
+            "endpoints": [
+                "/health",
+                "/programs",
+                "/programs/<name>",
+                "/clients",
+                "/clients/<name>",
+                "/clients/export.csv",
+                "/analytics/adherence",
+            ],
         }
     )
 
