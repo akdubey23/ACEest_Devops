@@ -99,10 +99,11 @@ def init_db() -> None:
         # - Do not enforce UNIQUE on name (id is the primary key)
         #
         # If an older schema exists (e.g. had calories/UNIQUE), recreate the table.
-        conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='clients'"
+        exists = (
+            conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='clients'")
+            .fetchone()
+            is not None
         )
-        exists = conn.fetchone() is not None
         if exists:
             cols = [r["name"] for r in conn.execute("PRAGMA table_info(clients)").fetchall()]
             required = {"id", "name", "age", "weight", "program", "adherence", "notes"}
