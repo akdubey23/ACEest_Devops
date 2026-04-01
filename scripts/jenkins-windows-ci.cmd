@@ -29,7 +29,8 @@ exit /b 1
 exit /b %ERRORLEVEL%
 
 :test
-"%RESOLVED_PY%" -m pytest tests/ -v --tb=short
+if not exist test-results mkdir test-results
+"%RESOLVED_PY%" -m pytest tests/ -v --tb=short --junitxml=test-results/junit.xml
 exit /b %ERRORLEVEL%
 
 :resolve_python

@@ -30,7 +30,7 @@ pipeline {
             steps {
                 script {
                     if (isUnix()) {
-                        sh 'python3 -m pytest tests/ -v --tb=short'
+                        sh 'mkdir -p test-results && python3 -m pytest tests/ -v --tb=short --junitxml=test-results/junit.xml'
                     } else {
                         bat 'call scripts\\jenkins-windows-ci.cmd test'
                     }
@@ -48,6 +48,12 @@ pipeline {
                     }
                 }
             }
+        }
+    }
+
+    post {
+        always {
+            junit testResults: 'test-results/junit.xml', allowEmptyResults: true
         }
     }
 }
