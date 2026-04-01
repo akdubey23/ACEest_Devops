@@ -287,8 +287,8 @@ def home():
     return jsonify(
         {
             "service": "ACEest Fitness & Gym API",
-            "phase": 4,
-            "version_source": "Aceestver2.0.1.py",
+            "phase": 10,
+            "version_source": "Aceestver-3.2.4.py",
             "endpoints": [
                 "/health",
                 "/programs",
@@ -296,7 +296,17 @@ def home():
                 "/clients",
                 "/clients/<name>",
                 "/clients/export.csv",
+                "/clients/<name>/report.pdf",
                 "/analytics/adherence",
+                "/analytics/adherence/<client_name>",
+                "/workouts",
+                "/workouts?client_name=",
+                "/metrics",
+                "/analytics/weight-trend?client_name=",
+                "/bmi?client_name=",
+                "/auth/login",
+                "/ai/program",
+                "/membership/status?client_name=",
             ],
         }
     )
