@@ -5,6 +5,7 @@ import io
 import os
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from flask import Flask, jsonify, request, Response
@@ -121,6 +122,18 @@ def init_db() -> None:
                 program TEXT,
                 adherence INTEGER,
                 notes TEXT
+            )
+            """
+        )
+
+        # Phase 6 (Aceestver-2.2.1.py): progress table for charting
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS progress (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_name TEXT,
+                week TEXT,
+                adherence INTEGER
             )
             """
         )
@@ -252,6 +265,13 @@ def save_client():
             (name, age, weight_kg, program, adherence, notes),
         )
 
+        # Phase 6 support: capture adherence into progress history for charting
+        week = datetime.now().strftime("Week %U - %Y")
+        conn.execute(
+            "INSERT INTO progress (client_name, week, adherence) VALUES (?, ?, ?)",
+            (name, week, adherence),
+        )
+
     client = Client(name=name, age=age, weight_kg=weight_kg, program=program, adherence=adherence, notes=notes)
     return jsonify({"client": client.to_dict()}), 201
 
@@ -318,6 +338,26 @@ def adherence_chart_data():
     with _db() as conn:
         rows = conn.execute("SELECT name, adherence FROM clients ORDER BY name").fetchall()
     return jsonify({"labels": [r["name"] for r in rows], "values": [int(r["adherence"] or 0) for r in rows]})
+
+
+# -------------------------
+# Phase 6 (Aceestver-2.2.1.py)
+# -------------------------
+
+
+@app.get("/analytics/adherence/<string:client_name>")
+def adherence_series(client_name: str):
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT week, adherence FROM progress WHERE client_name=? ORDER BY id",
+            (client_name,),
+        ).fetchall()
+    return jsonify(
+        {
+            "client": client_name,
+            "series": [{"week": r["week"], "adherence": int(r["adherence"] or 0)} for r in rows],
+        }
+    )
 
 
 if __name__ == "__main__":
