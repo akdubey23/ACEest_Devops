@@ -5,7 +5,7 @@ import io
 import os
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from flask import Flask, jsonify, request, Response
@@ -107,7 +107,18 @@ def init_db() -> None:
         )
         if exists:
             cols = [r["name"] for r in conn.execute("PRAGMA table_info(clients)").fetchall()]
-            required = {"id", "name", "age", "weight", "program", "adherence", "notes"}
+            required = {
+                "id",
+                "name",
+                "age",
+                "height_cm",
+                "weight",
+                "program",
+                "adherence",
+                "notes",
+                "target_weight_kg",
+                "target_adherence",
+            }
             # If schema differs (e.g. contains calories), drop and recreate.
             if set(cols) != required:
                 conn.execute("DROP TABLE clients")
@@ -118,10 +129,13 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT,
                 age INTEGER,
+                height_cm REAL,
                 weight REAL,
                 program TEXT,
                 adherence INTEGER,
-                notes TEXT
+                notes TEXT,
+                target_weight_kg REAL,
+                target_adherence INTEGER
             )
             """
         )
@@ -138,6 +152,44 @@ def init_db() -> None:
             """
         )
 
+        # Phase 7 (Aceestver-2.2.4.py): workouts, exercises, and metrics tables
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS workouts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_name TEXT,
+                date TEXT,
+                workout_type TEXT,
+                duration_min INTEGER,
+                notes TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS exercises (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workout_id INTEGER,
+                name TEXT,
+                sets INTEGER,
+                reps INTEGER,
+                weight REAL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_name TEXT,
+                date TEXT,
+                weight REAL,
+                waist REAL,
+                bodyfat REAL
+            )
+            """
+        )
+
 
 init_db()
 
@@ -146,10 +198,13 @@ init_db()
 class Client:
     name: str
     age: int = 0
+    height_cm: float = 0.0
     weight_kg: float = 0.0
     program: str = ""
     adherence: int = 0
     notes: str = ""
+    target_weight_kg: float = 0.0
+    target_adherence: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         estimated_calories = None
@@ -218,7 +273,9 @@ def get_program(name: str):
 def list_clients():
     with _db() as conn:
         rows = conn.execute(
-            "SELECT id, name, age, weight, program, adherence, notes FROM clients ORDER BY name, id"
+            "SELECT id, name, age, height_cm, weight, program, adherence, notes, "
+            "target_weight_kg, target_adherence "
+            "FROM clients ORDER BY name, id"
         ).fetchall()
     clients: list[dict[str, Any]] = []
     for r in rows:
@@ -231,11 +288,14 @@ def list_clients():
             {
                 "name": r["name"],
                 "age": r["age"] or 0,
+                "height_cm": float(r["height_cm"] or 0.0),
                 "weight_kg": weight_kg,
                 "program": program,
                 "adherence": int(r["adherence"] or 0),
                 "notes": r["notes"] or "",
                 "estimated_calories": estimated_calories,
+                "target_weight_kg": float(r["target_weight_kg"] or 0.0),
+                "target_adherence": int(r["target_adherence"] or 0),
             }
         )
     return jsonify({"clients": clients})
@@ -252,17 +312,22 @@ def save_client():
         raise ApiError(400, f"Unknown program: {program}")
 
     age = int(payload.get("age") or 0)
+    height_cm = float(payload.get("height_cm") or 0.0)
     weight_kg = float(payload.get("weight_kg") or 0.0)
     adherence = int(payload.get("adherence") or 0)
     notes = str(payload.get("notes") or "")
+    target_weight_kg = float(payload.get("target_weight_kg") or 0.0)
+    target_adherence = int(payload.get("target_adherence") or 0)
 
     with _db() as conn:
         conn.execute(
             """
-            INSERT INTO clients (name, age, weight, program, adherence, notes)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO clients (
+              name, age, height_cm, weight, program, adherence, notes, target_weight_kg, target_adherence
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (name, age, weight_kg, program, adherence, notes),
+            (name, age, height_cm, weight_kg, program, adherence, notes, target_weight_kg, target_adherence),
         )
 
         # Phase 6 support: capture adherence into progress history for charting
@@ -272,7 +337,17 @@ def save_client():
             (name, week, adherence),
         )
 
-    client = Client(name=name, age=age, weight_kg=weight_kg, program=program, adherence=adherence, notes=notes)
+    client = Client(
+        name=name,
+        age=age,
+        height_cm=height_cm,
+        weight_kg=weight_kg,
+        program=program,
+        adherence=adherence,
+        notes=notes,
+        target_weight_kg=target_weight_kg,
+        target_adherence=target_adherence,
+    )
     return jsonify({"client": client.to_dict()}), 201
 
 
@@ -280,7 +355,7 @@ def save_client():
 def get_client(name: str):
     with _db() as conn:
         r = conn.execute(
-            "SELECT id, name, age, weight, program, adherence, notes "
+            "SELECT id, name, age, height_cm, weight, program, adherence, notes, target_weight_kg, target_adherence "
             "FROM clients WHERE name=? ORDER BY id DESC LIMIT 1",
             (name,),
         ).fetchone()
@@ -296,11 +371,14 @@ def get_client(name: str):
             "client": {
                 "name": r["name"],
                 "age": r["age"] or 0,
+                "height_cm": float(r["height_cm"] or 0.0),
                 "weight_kg": weight_kg,
                 "program": program,
                 "adherence": int(r["adherence"] or 0),
                 "notes": r["notes"] or "",
                 "estimated_calories": estimated_calories,
+                "target_weight_kg": float(r["target_weight_kg"] or 0.0),
+                "target_adherence": int(r["target_adherence"] or 0),
             }
         }
     )
@@ -358,6 +436,156 @@ def adherence_series(client_name: str):
             "series": [{"week": r["week"], "adherence": int(r["adherence"] or 0)} for r in rows],
         }
     )
+
+
+# -------------------------
+# Phase 7 (Aceestver-2.2.4.py)
+# -------------------------
+
+
+@app.post("/workouts")
+def create_workout():
+    payload = request.get_json(silent=True) or {}
+    client_name = str(payload.get("client_name") or "").strip()
+    if not client_name:
+        raise ApiError(400, "Field 'client_name' is required")
+
+    workout_date = str(payload.get("date") or date.today().isoformat())
+    workout_type = str(payload.get("workout_type") or "").strip()
+    if not workout_type:
+        raise ApiError(400, "Field 'workout_type' is required")
+
+    duration_min = int(payload.get("duration_min") or 0)
+    notes = str(payload.get("notes") or "")
+    exercises = payload.get("exercises") or []
+
+    with _db() as conn:
+        cur = conn.execute(
+            "INSERT INTO workouts (client_name, date, workout_type, duration_min, notes) VALUES (?,?,?,?,?)",
+            (client_name, workout_date, workout_type, duration_min, notes),
+        )
+        workout_id = cur.lastrowid
+
+        for ex in exercises:
+            ex_name = str(ex.get("name") or "").strip()
+            if not ex_name:
+                continue
+            conn.execute(
+                "INSERT INTO exercises (workout_id, name, sets, reps, weight) VALUES (?,?,?,?,?)",
+                (
+                    workout_id,
+                    ex_name,
+                    int(ex.get("sets") or 0),
+                    int(ex.get("reps") or 0),
+                    float(ex.get("weight") or 0.0),
+                ),
+            )
+
+    return jsonify({"workout_id": workout_id}), 201
+
+
+@app.get("/workouts")
+def list_workouts():
+    client_name = str(request.args.get("client_name") or "").strip()
+    if not client_name:
+        raise ApiError(400, "Query param 'client_name' is required")
+
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT id, date, workout_type, duration_min, notes "
+            "FROM workouts WHERE client_name=? ORDER BY date DESC, id DESC",
+            (client_name,),
+        ).fetchall()
+
+    return jsonify(
+        {
+            "client": client_name,
+            "workouts": [
+                {
+                    "id": r["id"],
+                    "date": r["date"],
+                    "workout_type": r["workout_type"],
+                    "duration_min": int(r["duration_min"] or 0),
+                    "notes": r["notes"] or "",
+                }
+                for r in rows
+            ],
+        }
+    )
+
+
+@app.post("/metrics")
+def create_metrics():
+    payload = request.get_json(silent=True) or {}
+    client_name = str(payload.get("client_name") or "").strip()
+    if not client_name:
+        raise ApiError(400, "Field 'client_name' is required")
+
+    metrics_date = str(payload.get("date") or date.today().isoformat())
+    weight = payload.get("weight")
+    waist = payload.get("waist")
+    bodyfat = payload.get("bodyfat")
+
+    with _db() as conn:
+        conn.execute(
+            "INSERT INTO metrics (client_name, date, weight, waist, bodyfat) VALUES (?,?,?,?,?)",
+            (client_name, metrics_date, weight, waist, bodyfat),
+        )
+
+    return jsonify({"status": "saved"}), 201
+
+
+@app.get("/analytics/weight-trend")
+def weight_trend():
+    client_name = str(request.args.get("client_name") or "").strip()
+    if not client_name:
+        raise ApiError(400, "Query param 'client_name' is required")
+
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT date, weight FROM metrics WHERE client_name=? AND weight IS NOT NULL ORDER BY date",
+            (client_name,),
+        ).fetchall()
+
+    return jsonify({"client": client_name, "series": [{"date": r["date"], "weight": r["weight"]} for r in rows]})
+
+
+@app.get("/bmi")
+def bmi_info():
+    client_name = str(request.args.get("client_name") or "").strip()
+    if not client_name:
+        raise ApiError(400, "Query param 'client_name' is required")
+
+    with _db() as conn:
+        r = conn.execute(
+            "SELECT height_cm, weight FROM clients WHERE name=? ORDER BY id DESC LIMIT 1",
+            (client_name,),
+        ).fetchone()
+    if not r:
+        raise ApiError(404, f"Client not found: {client_name}")
+
+    height_cm = float(r["height_cm"] or 0.0)
+    weight_kg = float(r["weight"] or 0.0)
+    if height_cm <= 0 or weight_kg <= 0:
+        raise ApiError(400, "Client must have valid height_cm and weight_kg to compute BMI")
+
+    h_m = height_cm / 100.0
+    bmi = round(weight_kg / (h_m * h_m), 1)
+
+    if bmi < 18.5:
+        category = "Underweight"
+        risk = "Potential nutrient deficiency, low energy."
+    elif bmi < 25:
+        category = "Normal"
+        risk = "Low risk if active and strong."
+    elif bmi < 30:
+        category = "Overweight"
+        risk = "Moderate risk; focus on adherence and progressive activity."
+    else:
+        category = "Obese"
+        risk = "Higher risk; prioritize fat loss, consistency, and supervision."
+
+    return jsonify({"client": client_name, "bmi": bmi, "category": category, "risk": risk})
 
 
 if __name__ == "__main__":
