@@ -167,31 +167,27 @@ Annotated tags mark each major phase commit (`git tag -l -n1`). **`v1.0.0`** mar
 
 ## Screenshots (evidence)
 
-Replace the placeholder images under `assets/screenshots/` with your own PNG or SVG exports (keep the same paths, or update the links below). Structure mirrors common DevOps assignment submissions.
+Save your PNG files in **`assets/screenshots/`** using the **exact filenames** below so the images render on GitHub.
 
-### Jenkins pipeline
+### Jenkins
 
-![Jenkins pipeline stages](assets/screenshots/placeholder-jenkins-stages.svg)
+![Jenkins pipeline stages](assets/screenshots/Jenkin_Stage.png)
 
-![Jenkins build console output](assets/screenshots/placeholder-jenkins-console.svg)
-
-![Jenkins test result / artifacts](assets/screenshots/placeholder-jenkins-test-result.svg)
+![Jenkins tests / results](assets/screenshots/Jenkin_Test.png)
 
 ### GitHub Actions
 
-![GitHub Actions workflow run](assets/screenshots/placeholder-github-actions.svg)
+![GitHub Actions workflow](assets/screenshots/git-Workflow.png)
 
 ### Docker
 
-![Docker image build](assets/screenshots/placeholder-docker-build.svg)
+![Docker image build](assets/screenshots/docker-build.png)
 
-![Docker container run](assets/screenshots/placeholder-docker-run.svg)
+![Docker container run](assets/screenshots/docker-run.png)
 
-### Tests and API
+### API
 
-![Local or CI pytest run](assets/screenshots/placeholder-pytest-local.svg)
-
-![Health check (browser or API client)](assets/screenshots/placeholder-health-check.svg)
+![Health check](assets/screenshots/Health_Check.png)
 
 ## License / course use
 
