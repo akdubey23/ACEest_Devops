@@ -144,7 +144,7 @@ Flow: `feature/*` → `develop` → `master` (release). Release tags (e.g. `v1.0
 
 ### Git tags (phase milestones)
 
-Annotated tags mark each major phase commit (see `git tag -l -n1`). **`v1.0.0`** points at the latest submission snapshot on `master` (docs + CI + tests).
+Annotated tags mark each major phase commit (`git tag -l -n1`). **`v1.0.0`** marks the submission snapshot with README evidence placeholders, CI, and tests. The **phase-\*** tags point at older commits—check out any tag to inspect that phase’s tree.
 
 | Tag | Approx. source / theme |
 |-----|-------------------------|
@@ -158,7 +158,7 @@ Annotated tags mark each major phase commit (see `git tag -l -n1`). **`v1.0.0`**
 | `phase-8-auth-ai-pdf` | Auth, AI program, PDF report |
 | `phase-9-membership` | Membership refactor |
 | `phase-10-v3.2.4` | Phase 10 cleanup (v3.2.4 baseline) |
-| `v1.0.0` | Full assignment snapshot (README, screenshots, CI, all tests) |
+| `v1.0.0` | Submission snapshot: README + screenshot placeholders + GitHub Actions + Jenkins + full test suite |
 
 ## CI/CD integration
 
