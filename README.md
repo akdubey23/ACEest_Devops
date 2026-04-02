@@ -171,9 +171,3 @@ Files live in **`assets/screenshots/`** (exact names). Jenkins needs **two diffe
 | `ci:` | Jenkins, Actions, Docker CI |
 | `docs:` | README, comments aimed at readers |
 | `chore:` | Tooling, deps, housekeeping |
-
----
-
-## License / course use
-
-Academic DevOps / WILP context—adapt if your campus requires a formal license or attribution.
