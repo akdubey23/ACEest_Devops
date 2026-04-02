@@ -52,8 +52,47 @@ pipeline {
                 script {
                     if (isUnix()) {
                         sh 'docker build -t aceest-fitness-api:jenkins .'
+                        sh 'docker tag aceest-fitness-api:jenkins aceest-fitness-api:staging'
                     } else {
                         bat 'docker build -t aceest-fitness-api:jenkins .'
+                        bat 'docker tag aceest-fitness-api:jenkins aceest-fitness-api:staging'
+                    }
+                }
+            }
+        }
+
+        // Staging: run image like a short-lived staging env, smoke-test /health, tear down.
+        // Uses host port 5099 -> container 5000 (change STAGING_HOST_PORT if Jenkins already uses 5099).
+        stage('Staging') {
+            environment {
+                STAGING_NAME = 'aceest-staging-jenkins'
+                STAGING_HOST_PORT = '5099'
+            }
+            steps {
+                script {
+                    if (isUnix()) {
+                        sh """
+                            docker rm -f ${env.STAGING_NAME} 2>/dev/null || true
+                            docker run -d --name ${env.STAGING_NAME} -p ${env.STAGING_HOST_PORT}:5000 aceest-fitness-api:staging
+                            cleanup() { docker rm -f ${env.STAGING_NAME} 2>/dev/null || true; }
+                            trap cleanup EXIT
+                            ok=0
+                            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+                              if curl -sf "http://127.0.0.1:${env.STAGING_HOST_PORT}/health" | grep -q ok; then
+                                ok=1
+                                break
+                              fi
+                              sleep 2
+                            done
+                            if [ "\$ok" != "1" ]; then
+                              echo "Staging smoke test failed: /health did not return ok in time"
+                              exit 1
+                            fi
+                            echo "Staging health check passed:"
+                            curl -s "http://127.0.0.1:${env.STAGING_HOST_PORT}/health"
+                        """
+                    } else {
+                        bat 'call scripts\\jenkins-windows-staging.cmd'
                     }
                 }
             }
