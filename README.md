@@ -1,194 +1,148 @@
 # ACEest Fitness API
 
-A REST API for gym and client management: programs, clients, workouts, progress analytics, authentication, AI-style program suggestions, PDF reports, and membership tracking. Built for DevOps coursework and local or containerized deployment.
+Flask + SQLite REST API for gym operations: programs, clients, workouts, analytics (adherence, weight, BMI), CSV/PDF export, admin login, rule-based “AI” weekly plans, and membership fields. Built for BITS-style DevOps coursework (Git, GitHub Actions, Jenkins, Docker).
 
-## Description
+---
 
-ACEest Fitness API replaces ad-hoc spreadsheets and desktop-only tools with a single HTTP service. Trainers and integrations can create and update client profiles, log workouts and body metrics, review adherence and weight trends, export data (CSV, PDF), and check membership status—without sharing one physical machine or database file path by hand.
+## Quick start
 
-## Features
-
-| Area | Capabilities |
-|------|----------------|
-| **CRUD** | Program catalog; create, read, list, and patch clients; CSV export |
-| **Analytics** | Gym-wide adherence chart data; per-client adherence history; weight-over-time series; BMI from height and weight |
-| **Auth** | Role-based login against a SQLite `users` table (default admin user for development) |
-| **AI** | Rule-based weekly workout plan generator from client program and experience level |
-| **PDF** | Per-client PDF report (client details and membership fields) |
-| **Membership** | `membership_status` and `membership_end`; dedicated membership status lookup |
-
-Data is stored in **SQLite** (path configurable via environment variable).
-
-## Tech stack
-
-- **Flask** — HTTP API
-- **SQLite** — persistence (`sqlite3` standard library)
-- **fpdf2** — PDF generation
-- **pytest** — automated tests
-
-## Setup
-
-### Prerequisites
-
-- Python 3.10+ recommended  
-- `pip` (or `python -m pip`)
-
-### Install dependencies
+**Needs:** Python 3.10+, `pip`.
 
 ```bash
 python -m pip install -r requirements.txt
-```
-
-### Run the server
-
-From the project root:
-
-```bash
 python app.py
 ```
 
-The app listens on **http://127.0.0.1:5000** by default (`host=0.0.0.0`, `port=5000`).
+- **URL:** `http://127.0.0.1:5000` (binds `0.0.0.0:5000`).
+- **DB:** `aceest_fitness.db` in the working directory, or set `ACEEST_DB_PATH` to a full path (tests use a temp file via this variable).
 
-### Database location
-
-- Default file: `aceest_fitness.db` in the working directory  
-- Override: set `ACEEST_DB_PATH` to an absolute path before starting the app (useful for tests and multiple environments)
-
-```bash
-# Windows PowerShell example
-$env:ACEEST_DB_PATH = "C:\data\aceest.db"
-python app.py
+```powershell
+# Windows PowerShell
+$env:ACEEST_DB_PATH = "C:\data\aceest.db"; python app.py
 ```
 
-## API endpoints summary
+---
 
-Discovery and health:
+## Stack
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/` | Service metadata, phase, and endpoint list |
-| GET | `/health` | Liveness check |
+| Piece | Role |
+|-------|------|
+| Flask | HTTP API |
+| SQLite | Persistence (`sqlite3` stdlib) |
+| fpdf2 | PDF reports |
+| pytest | Tests (e2e + feature-style suites, optional Allure/HTML/JUnit in CI) |
 
-Programs:
+---
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/programs` | List all programs |
-| GET | `/programs/<name>` | Single program details |
+## API (summary)
 
-Clients:
+Errors: JSON `{"error": "..."}` with an appropriate HTTP status.
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/clients` | List clients |
-| POST | `/clients` | Create client record |
-| GET | `/clients/<name>` | Latest record for that name |
-| PATCH | `/clients/<name>` | Partial update (latest row) |
-| GET | `/clients/export.csv` | CSV export |
-| GET | `/clients/<name>/report.pdf` | PDF report |
+| Area | Method | Path | Purpose |
+|------|--------|------|---------|
+| Meta | GET | `/` | Metadata, phase, endpoint list |
+| Meta | GET | `/health` | Liveness |
+| Programs | GET | `/programs` | List programs |
+| Programs | GET | `/programs/<name>` | One program |
+| Clients | GET | `/clients` | List |
+| Clients | POST | `/clients` | Create |
+| Clients | GET | `/clients/<name>` | Read latest by name |
+| Clients | PATCH | `/clients/<name>` | Partial update |
+| Clients | GET | `/clients/export.csv` | CSV export |
+| Clients | GET | `/clients/<name>/report.pdf` | PDF report |
+| Analytics | GET | `/analytics/adherence` | Chart data (all clients) |
+| Analytics | GET | `/analytics/adherence/<client_name>` | Per-client series |
+| Analytics | GET | `/analytics/weight-trend?client_name=` | Weight from metrics |
+| Analytics | GET | `/bmi?client_name=` | BMI / category |
+| Workouts | POST | `/workouts` | Log workout (+ optional exercises) |
+| Workouts | GET | `/workouts?client_name=` | List |
+| Metrics | POST | `/metrics` | Log weight / waist / bodyfat |
+| Auth | POST | `/auth/login` | JSON `username`, `password` |
+| AI | POST | `/ai/program` | JSON `client_name`, `experience` |
+| Membership | GET | `/membership/status?client_name=` | Status + end date |
 
-Analytics and body metrics:
+---
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/analytics/adherence` | Labels/values for chart (all clients) |
-| GET | `/analytics/adherence/<client_name>` | Weekly adherence series |
-| GET | `/analytics/weight-trend?client_name=` | Weight series from metrics |
-| GET | `/bmi?client_name=` | BMI and category |
-
-Workouts and metrics:
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/workouts` | Log workout (optional nested exercises) |
-| GET | `/workouts?client_name=` | List workouts |
-| POST | `/metrics` | Log weight / waist / bodyfat |
-
-Auth, AI, membership:
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/auth/login` | JSON `username` / `password` |
-| POST | `/ai/program` | JSON `client_name`, `experience` (`beginner` / `intermediate` / `advanced`) |
-| GET | `/membership/status?client_name=` | Membership status and end date |
-
-Errors return JSON: `{"error": "<message>"}` with appropriate HTTP status codes.
-
-## Testing
-
-Install dev/runtime dependencies (includes `pytest`):
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-Run the full automated suite:
+## Tests
 
 ```bash
 python -m pytest tests/ -v
 ```
 
-The project includes an end-to-end test (`tests/test_final_e2e.py`) that exercises the main routes against a temporary database (`ACEEST_DB_PATH` set per test).
+`tests/test_final_e2e.py` walks the main routes on an isolated DB. `tests/test_api_features.py` groups scenarios by feature (Allure-friendly). CI also writes JUnit / HTML / Allure under `test-results` and `allure-results` when using the pipeline commands in `Jenkinsfile` / workflow.
 
-## Branching strategy
+---
 
-Aligned with a typical assignment Git flow (see also [BITS WILP-style example](https://github.com/2024tm93684/aceest-devops-assignment-01)):
+## Docker
 
-| Branch | Role |
-|--------|------|
-| `master` | Stable integration; production-style baseline for submission |
-| `develop` | Day-to-day integration; merge via PR when ready |
-| `feature/*` | Optional short-lived branches for individual changes |
+```bash
+docker build -t aceest-fitness-api:local .
+docker run -p 5000:5000 aceest-fitness-api:local
+```
 
-Flow: `feature/*` → `develop` → `master` (release). Release tags (e.g. `v1.0.0`) are cut from `master` when you freeze a submission snapshot.
+Image runs `python app.py` on port **5000** inside the container.
 
-### Git tags (phase milestones)
+---
 
-Annotated tags mark each major phase commit (`git tag -l -n1`). **`v1.0.0`** marks the submission snapshot with README evidence placeholders, CI, and tests. The **phase-\*** tags point at older commits—check out any tag to inspect that phase’s tree.
+## Branching workflow
 
-| Tag | Approx. source / theme |
-|-----|-------------------------|
-| `phase-1-v1.0` | Baseline program catalog (v1.0) |
-| `phase-2-v1.1.2` | In-memory clients, CSV export |
-| `phase-3-tests` | Pytest scaffolding + requirements (pre–SQLite) |
-| `phase-4-v2.0.1` | SQLite persistence for clients |
-| `phase-5-stabilization` | Phase 5 stabilization / metadata |
-| `phase-6-v2.2.1` | Progress / adherence chart |
-| `phase-7-v2.2.4` | Workouts + body metrics |
-| `phase-8-auth-ai-pdf` | Auth, AI program, PDF report |
-| `phase-9-membership` | Membership refactor |
-| `phase-10-v3.2.4` | Phase 10 cleanup (v3.2.4 baseline) |
-| `v1.0.0` | Submission snapshot: README + screenshot placeholders + GitHub Actions + Jenkins + full test suite |
+```
+master     — stable line; tagged releases (e.g. v1.0.0) for submission snapshots
+develop    — integration before master; day-to-day merges land here first
+feature/*  — optional topic branches (example: feature/ci-staging)
+```
 
-## CI/CD integration
+Typical flow: **`feature/*` → `develop` → `master`**. Phase history is also captured as **`phase-*`** annotated tags on older commits (see below), not only branch tips.
 
-- **GitHub Actions** (`.github/workflows/main.yml`) runs on push and pull request: install deps, `compileall`, pytest with JUnit/HTML/Allure outputs, artifact upload, Docker build.
-- **Jenkins** (`Jenkinsfile`) runs checkout, dependency install, tests (including Windows-friendly Python discovery), and Docker build on your agent.
+---
 
-## Screenshots (evidence)
+## Git tags (phases)
 
-Put PNG files in **`assets/screenshots/`** using these **exact names** (same as your image files, including spaces and underscores):
+| Tag | Milestone |
+|-----|-----------|
+| `phase-1-v1.0` | Baseline catalog API |
+| `phase-2-v1.1.2` | In-memory clients + CSV |
+| `phase-3-tests` | Pytest + requirements (pre-SQLite) |
+| `phase-4-v2.0.1` | SQLite clients |
+| `phase-5-stabilization` | Stabilization / metadata |
+| `phase-6-v2.2.1` | Adherence / progress chart |
+| `phase-7-v2.2.4` | Workouts + metrics |
+| `phase-8-auth-ai-pdf` | Auth, AI plan, PDF |
+| `phase-9-membership` | Membership |
+| `phase-10-v3.2.4` | Phase-10 / v3.2.4 baseline |
+| `v1.0.0` | Submission snapshot (CI, tests, docs, screenshots) |
 
-| Save as this filename | Should show |
-|----------------------|-------------|
-| `Jenkins pipeline stages.png` | Blue Ocean / **Stages** graph |
-| `Jenkin_Test.png` | **Different** capture: Test Result, console log, or Pipeline Steps — not the same file as the row above |
-| `GitHub Actions workflow.png` |
-| `Docker image build.png` |
-| `Docker container run.png` |
-| `Health check.png` |
+List locally: `git tag -l -n1`.
+
+---
+
+## CI/CD
+
+| System | What it does |
+|--------|----------------|
+| **GitHub Actions** (`.github/workflows/main.yml`) | On push / PR: deps, `compileall`, pytest (+ reports), upload artifacts, `docker build`. |
+| **Jenkins** (`Jenkinsfile`) | Checkout, install (Windows uses `scripts/jenkins-windows-ci.cmd` + optional `PYTHON_JENKINS`), test, Docker build, **Staging** smoke (`/health` on a short-lived container on host port **5099**). |
+
+---
+
+## Evidence (screenshots)
+
+Files live in **`assets/screenshots/`** (exact names). Jenkins needs **two different** PNGs: stage graph vs test/console.
+
+| File | Content |
+|------|---------|
+| `Jenkins pipeline stages.png` | Stage graph |
+| `Jenkin_Test.png` | Test Result or console (not a duplicate of the file above) |
+| `GitHub Actions workflow.png` | Actions run |
+| `Docker image build.png` | `docker build` |
+| `Docker container run.png` | `docker run` |
+| `Health check.png` | `/health` |
 
 ### Jenkins
 
-These are **two different screenshots**. Use the stage graph for the first file, and **Test Result**, **Console Output**, or **Pipeline Steps** for the second—then save it as `Jenkin_Test.png`. If both files are the same image on disk, GitHub will show the pipeline twice.
-
-#### Pipeline (stage graph)
-
 ![Jenkins pipeline — stage graph](assets/screenshots/Jenkins%20pipeline%20stages.png)
 
-#### Tests / console (must be a different PNG than above)
-
-![Jenkins — test results or console output](assets/screenshots/Jenkin_Test.png)
+![Jenkins — test or console](assets/screenshots/Jenkin_Test.png)
 
 ### GitHub Actions
 
@@ -204,6 +158,22 @@ These are **two different screenshots**. Use the stage graph for the first file,
 
 ![Health check](assets/screenshots/Health%20check.png)
 
+---
+
+## Commit convention
+
+| Prefix | Use for |
+|--------|---------|
+| `feat:` | New endpoint or behaviour |
+| `fix:` | Bug or regression |
+| `refactor:` | Internal change, same behaviour |
+| `test:` | Tests only |
+| `ci:` | Jenkins, Actions, Docker CI |
+| `docs:` | README, comments aimed at readers |
+| `chore:` | Tooling, deps, housekeeping |
+
+---
+
 ## License / course use
 
-This repository is intended for academic DevOps assignments (version control, CI/CD, containers). Adjust licensing and deployment notes for your institution’s requirements.
+Academic DevOps / WILP context—adapt if your campus requires a formal license or attribution.
