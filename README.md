@@ -130,6 +130,51 @@ python -m pytest tests/ -v
 
 The project includes an end-to-end test (`tests/test_final_e2e.py`) that exercises the main routes against a temporary database (`ACEEST_DB_PATH` set per test).
 
+## Branching strategy
+
+Aligned with a typical assignment Git flow (see also [BITS WILP-style example](https://github.com/2024tm93684/aceest-devops-assignment-01)):
+
+| Branch | Role |
+|--------|------|
+| `master` | Stable integration; production-style baseline for submission |
+| `develop` | Day-to-day integration; merge via PR when ready |
+| `feature/*` | Optional short-lived branches for individual changes |
+
+Flow: `feature/*` → `develop` → `master` (release). Release tags (e.g. `v1.0.0`) are cut from `master` when you freeze a submission snapshot.
+
+## CI/CD integration
+
+- **GitHub Actions** (`.github/workflows/main.yml`) runs on push and pull request: install deps, `compileall`, pytest with JUnit/HTML/Allure outputs, artifact upload, Docker build.
+- **Jenkins** (`Jenkinsfile`) runs checkout, dependency install, tests (including Windows-friendly Python discovery), and Docker build on your agent.
+
+## Screenshots (evidence)
+
+Replace the placeholder images under `assets/screenshots/` with your own PNG or SVG exports (keep the same paths, or update the links below). Structure mirrors common DevOps assignment submissions.
+
+### Jenkins pipeline
+
+![Jenkins pipeline stages](assets/screenshots/placeholder-jenkins-stages.svg)
+
+![Jenkins build console output](assets/screenshots/placeholder-jenkins-console.svg)
+
+![Jenkins test result / artifacts](assets/screenshots/placeholder-jenkins-test-result.svg)
+
+### GitHub Actions
+
+![GitHub Actions workflow run](assets/screenshots/placeholder-github-actions.svg)
+
+### Docker
+
+![Docker image build](assets/screenshots/placeholder-docker-build.svg)
+
+![Docker container run](assets/screenshots/placeholder-docker-run.svg)
+
+### Tests and API
+
+![Local or CI pytest run](assets/screenshots/placeholder-pytest-local.svg)
+
+![Health check (browser or API client)](assets/screenshots/placeholder-health-check.svg)
+
 ## License / course use
 
 This repository is intended for academic DevOps assignments (version control, CI/CD, containers). Adjust licensing and deployment notes for your institution’s requirements.
