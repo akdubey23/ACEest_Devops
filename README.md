@@ -142,6 +142,24 @@ Aligned with a typical assignment Git flow (see also [BITS WILP-style example](h
 
 Flow: `feature/*` → `develop` → `master` (release). Release tags (e.g. `v1.0.0`) are cut from `master` when you freeze a submission snapshot.
 
+### Git tags (phase milestones)
+
+Annotated tags mark each major phase commit (see `git tag -l -n1`). **`v1.0.0`** points at the latest submission snapshot on `master` (docs + CI + tests).
+
+| Tag | Approx. source / theme |
+|-----|-------------------------|
+| `phase-1-v1.0` | Baseline program catalog (v1.0) |
+| `phase-2-v1.1.2` | In-memory clients, CSV export |
+| `phase-3-tests` | Pytest scaffolding + requirements (pre–SQLite) |
+| `phase-4-v2.0.1` | SQLite persistence for clients |
+| `phase-5-stabilization` | Phase 5 stabilization / metadata |
+| `phase-6-v2.2.1` | Progress / adherence chart |
+| `phase-7-v2.2.4` | Workouts + body metrics |
+| `phase-8-auth-ai-pdf` | Auth, AI program, PDF report |
+| `phase-9-membership` | Membership refactor |
+| `phase-10-v3.2.4` | Phase 10 cleanup (v3.2.4 baseline) |
+| `v1.0.0` | Full assignment snapshot (README, screenshots, CI, all tests) |
+
 ## CI/CD integration
 
 - **GitHub Actions** (`.github/workflows/main.yml`) runs on push and pull request: install deps, `compileall`, pytest with JUnit/HTML/Allure outputs, artifact upload, Docker build.
