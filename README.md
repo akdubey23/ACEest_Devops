@@ -169,10 +169,10 @@ Annotated tags mark each major phase commit (`git tag -l -n1`). **`v1.0.0`** mar
 
 Put PNG files in **`assets/screenshots/`** using these **exact names** (same as your image files, including spaces and underscores):
 
-| Save as this filename |
-|----------------------|
-| `Jenkins pipeline stages.png` |
-| `Jenkin_Test.png` |
+| Save as this filename | Should show |
+|----------------------|-------------|
+| `Jenkins pipeline stages.png` | Blue Ocean / **Stages** graph |
+| `Jenkin_Test.png` | **Different** capture: Test Result, console log, or Pipeline Steps — not the same file as the row above |
 | `GitHub Actions workflow.png` |
 | `Docker image build.png` |
 | `Docker container run.png` |
@@ -180,9 +180,15 @@ Put PNG files in **`assets/screenshots/`** using these **exact names** (same as 
 
 ### Jenkins
 
-![Jenkins pipeline stages](assets/screenshots/Jenkins%20pipeline%20stages.png)
+These are **two different screenshots**. Use the stage graph for the first file, and **Test Result**, **Console Output**, or **Pipeline Steps** for the second—then save it as `Jenkin_Test.png`. If both files are the same image on disk, GitHub will show the pipeline twice.
 
-![Jenkin_Test](assets/screenshots/Jenkin_Test.png)
+#### Pipeline (stage graph)
+
+![Jenkins pipeline — stage graph](assets/screenshots/Jenkins%20pipeline%20stages.png)
+
+#### Tests / console (must be a different PNG than above)
+
+![Jenkins — test results or console output](assets/screenshots/Jenkin_Test.png)
 
 ### GitHub Actions
 
