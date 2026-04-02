@@ -167,27 +167,36 @@ Annotated tags mark each major phase commit (`git tag -l -n1`). **`v1.0.0`** mar
 
 ## Screenshots (evidence)
 
-Save your PNG files in **`assets/screenshots/`** using the **exact filenames** below so the images render on GitHub.
+Put PNG files in **`assets/screenshots/`** using these **exact names** (same as your image files, including spaces and underscores):
+
+| Save as this filename |
+|----------------------|
+| `Jenkins pipeline stages.png` |
+| `Jenkin_Test.png` |
+| `GitHub Actions workflow.png` |
+| `Docker image build.png` |
+| `Docker container run.png` |
+| `Health check.png` |
 
 ### Jenkins
 
-![Jenkins pipeline stages](assets/screenshots/Jenkin_Stage.png)
+![Jenkins pipeline stages](assets/screenshots/Jenkins%20pipeline%20stages.png)
 
-![Jenkins tests / results](assets/screenshots/Jenkin_Test.png)
+![Jenkin_Test](assets/screenshots/Jenkin_Test.png)
 
 ### GitHub Actions
 
-![GitHub Actions workflow](assets/screenshots/git-Workflow.png)
+![GitHub Actions workflow](assets/screenshots/GitHub%20Actions%20workflow.png)
 
 ### Docker
 
-![Docker image build](assets/screenshots/docker-build.png)
+![Docker image build](assets/screenshots/Docker%20image%20build.png)
 
-![Docker container run](assets/screenshots/docker-run.png)
+![Docker container run](assets/screenshots/Docker%20container%20run.png)
 
 ### API
 
-![Health check](assets/screenshots/Health_Check.png)
+![Health check](assets/screenshots/Health%20check.png)
 
 ## License / course use
 
